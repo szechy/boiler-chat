@@ -1,6 +1,3 @@
-#include <nRF24L01.h>
-#include <RF24.h>
-#include <RF24_config.h>
 /* vim: set ts=2 sw=2 sts=2 et! : */
 //
 // BoilerMake Fall 2014 Badge Code
@@ -38,7 +35,7 @@ void serialRead(void);
 void handleSerialData(char[], byte);
 
 void setValue(word);
-void handleIRCPayload(struct payload *);
+void handleIRCPayload(struct irc_payload *);
 
 void ledDisplay(byte);
 void displayDemo();
@@ -82,7 +79,7 @@ struct irc_payload {
   byte command;
   byte sig_one;
   byte sig_two;
-  char message[30];
+  char message[140];
 
 };
 
@@ -128,7 +125,7 @@ void loop() {
   }
   //networkIRCRead();
   //sendLEDPattern()
-  //networkIRCRead(); // Read from network
+  networkIRCRead(); // Read from network
   serialRead(); // Read from serial
 }
 
@@ -182,10 +179,10 @@ void portScan() {
 // Handle reading from the radio
 void networkIRCRead() {
   while (radio.available()) {
-    struct payload * current_payload = (struct payload *) malloc(sizeof(struct payload));
+    struct irc_payload * current_payload = (struct irc_payload *) malloc(sizeof(struct irc_payload));
 
     // Fetch the payload, and see if this was the last one.
-    radio.read( current_payload, sizeof(struct payload) );
+    radio.read( current_payload, sizeof(struct irc_payload) );
     handleIRCPayload(current_payload);
   }
 }
@@ -411,6 +408,7 @@ void handleIRCPayload(struct irc_payload * myPayload) {
 }
 
 void handleIRCmessage(char message[30]) {
+  
   //copy message for parsing
   //char mess_copy[30] = message;
   //how to decompile message... pull command out
