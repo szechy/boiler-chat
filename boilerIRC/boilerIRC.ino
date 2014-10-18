@@ -50,10 +50,11 @@ void ledDisplayIndividual(uint8_t pattern);
 void portScan();
 
 // Maps commands to integers
-const byte PING   = 0; // Ping
-const byte LED    = 1; // LED pattern
-const byte MESS   = 2; // Message
-const byte DEMO   = 3; // Demo Pattern
+const byte PING   = 0;   // Ping
+const byte LED    = 1;   // LED pattern
+const byte MESS   = 2;   // Message
+const byte DEMO   = 3;   // Demo Pattern
+const byte PING_RET = 4; //ping return
 
 //const byte MESSAGE = 0;
 
@@ -61,7 +62,12 @@ const byte DEMO   = 3; // Demo Pattern
 int SROEPin = 3; // using digital pin 3 for SR !OE
 int SRLatchPin = 8; // using digital pin 4 for SR latch
 boolean terminalConnect = false; // indicates if the terminal has connected to the board yet
-const uint16_t users[4] = {0x01d2, 0x012e, 0x01cf, 0x01d9}; //riyu, kenny, mayank, and colins ID's used to send messages. temporary solution
+const uint16_t users[5] = {0x01d2, 0x012e, 0x01cf, 0x01d9, 0x1ca}; //riyu, kenny, mayank, and colins ID's used to send messages. temporary solution
+int users_stored = 5;
+
+struct user {
+  uint16_t address;
+};
 
 // nRF24L01 radio static initializations
 RF24 radio(9,10); // Setup nRF24L01 on SPI bus using pins 9 & 10 as CE & CSN, respectively
@@ -136,7 +142,7 @@ void loop() {
 void ledAttempt() {
   Serial.println("in ledAttempt ");
   //delay(1000);
-  byte temp = 0xAA;
+  //byte temp = 0xAA;
   ledDisplay(5);
   //ledPattern++;
 }
@@ -192,15 +198,7 @@ void portScan() {
     radio.openWritingPipe(i);
     radio.write(&myPayload, len);
     radio.startListening();
-    //Serial.println("Reading in address: ");
     Serial.println(i);
-    /*struct payload myPayload = {PING, '\0', {'\0'}};
-    size_t len = sizeof(PING) + sizeof('\0') * 2;
-
-    radio.stopListening();
-    radio.openWritingPipe(TOaddr);
-    radio.write(&myPayload, len);
-    radio.startListening();*/
   }
 }
 
@@ -210,7 +208,7 @@ void networkIRCRead() {
     struct irc_payload * current_payload = (struct irc_payload *) malloc(sizeof(struct irc_payload));
 
     // Fetch the payload, and see if this was the last one.
-    radio.read( current_payload, sizeof(struct payload) );
+    radio.read( current_payload, sizeof(struct irc_payload) );
     handleIRCPayload(current_payload);
   }
 }
@@ -260,14 +258,14 @@ void handleSerialDataIRC(char inData[], byte index) {
     //sends messages to all users in a list
     if (strcmp(words[1],"all") == 0) {
       struct irc_payload myPayload;
-      for(int i = 0;i < 4;i++){
+      for(int i = 0;i < users_stored ;i++){
         myPayload = send_message(users[i], words, current_word_index);
         radio.stopListening();
         radio.openWritingPipe(users[i]);
         radio.write(&myPayload, sizeof(myPayload));
         radio.startListening();
       }
-      //Serial.println(myPayload.message);
+      Serial.println(myPayload.message);
     }
     else {
       uint16_t TOaddr = strtol(words[1], NULL, 16);
@@ -279,6 +277,23 @@ void handleSerialDataIRC(char inData[], byte index) {
       radio.write(&myPayload, sizeof(myPayload));
       radio.startListening();
     }
+  }
+  else if(strcmp(words[0], "ping") == 0) {
+    //ping the user specified
+    uint16_t TOaddr = strtol(words[1], NULL, 16);
+    byte first_addr = (byte)((this_node_address & 0xFF00) >> 8);
+    byte second_addr = (byte)(this_node_address & 0x00FF);
+    Serial.println("Pinging ");
+    Serial.println(TOaddr);
+    char some_cstring[10];
+    sprintf(some_cstring, "%04x", TOaddr);
+    //sprintf( + first_addr);
+    //Serial.println(second_addr);
+    struct irc_payload myPayload = {PING, first_addr, second_addr, {'\0'}};
+    radio.stopListening();
+    radio.openWritingPipe(TOaddr);
+    radio.write(&myPayload, sizeof(myPayload));
+    radio.startListening();
   }
 }
 // Handle received commands from user obtained via the serial termina
@@ -394,28 +409,30 @@ void handleSerialData(char inData[], byte index) {
 void handleIRCPayload(struct irc_payload * myPayload) {
   switch(myPayload->command) {
 
-    case PING:
-      Serial.println("Someone pinged us!");
+    case PING: {
+      Serial.println("PING RECEIVED");
+      uint16_t addr = (myPayload->sig_one << 8) | myPayload->sig_two;
+      char some_cstring[10];
+      sprintf(some_cstring, "%04x", addr);
+      returnPing(myPayload->sig_one, myPayload->sig_two);
       printPrompt();
+    }
       break;
 
-    case LED:
-      //ledDisplay(myPayload->led_pattern);
-      //ledDisplayIndividual(myPayload->led_pattern);
-      break;
-
-    case MESS:
-      Serial.print("Message:\r\n  ");
-      Serial.println(myPayload->message);
-      Serial.println(myPayload->sig_one);
-      Serial.println(myPayload->sig_two);
-      handleIRCmessage(myPayload->message);
+    case MESS: {
+      handleIRCmessage(myPayload->sig_one, myPayload->sig_two, myPayload->message);
       printPrompt();
+    }
       break;
 
-    case DEMO:
-      displayDemo();
-      break;
+    case PING_RET: {
+      Serial.println("PING RETURN RECEIVED");
+      uint16_t addr = (myPayload->sig_one << 8) | myPayload->sig_two;
+      char some_cstring[10];
+      sprintf(some_cstring, "%04x", addr);
+      //returnPing(myPayload->sig_one, myPayload->sig_two);
+    }
+    break;
 
     default:
       Serial.println(" Invalid command received.");
@@ -424,39 +441,25 @@ void handleIRCPayload(struct irc_payload * myPayload) {
   free(myPayload); // Deallocate payload memory block
 }
 
-void handleIRCmessage(char message[30]) {
-  //copy message for parsing
-  //char mess_copy[30] = message;
-  //how to decompile message... pull command out
-  /*char * user = strtok(message, " ");
-  char * command = strtok(mess_copy, NULL);
-  //try to find user
-  if(!findUser(user)) {
-    Serial.println("Some mystery user just messaged us, idk");
-  }
-  //useradd command
-  if(strcmp(command, "useradd") == 0) {
-      
-  }
-  //ua command (abbreivated useradd)
-  else if(strcmp(command, "ua") == 0) {
-  
-  }
-  //drop command
-  else if(strcmp(command, "drop") == 0) {
-  
-  }
-  //dp command (abbreviated drop)
-  else if(strcmp(command, "dp") == 0) {
-  
-  }
-  //m command - send a message
-  else if(strcmp(command, "m") == 0) {
-  
-  }
-  else {
-    Serial.println("Someone sent a message without a recognizable tag!");
-  }*/
+void returnPing(byte first_addr, byte second_addr) {
+    uint16_t addr = (first_addr << 8) | second_addr;
+    struct irc_payload myPayload = {PING_RET, first_addr, second_addr, {'\0'}};
+    radio.stopListening();
+    radio.openWritingPipe(addr);
+    radio.write(&myPayload, sizeof(myPayload));
+    radio.startListening();
+}
+
+void handleIRCmessage(byte first_addr, byte second_addr, char message[30]) {
+  //display user's signature
+  ledDisplayIndividual(first_addr);
+  ledDisplayIndividual(second_addr);
+  Serial.println("Message:\r\n  ");
+  Serial.print("From: ");
+  uint16_t addr = (first_addr << 8) | second_addr;
+  char some_cstring[10];
+  sprintf(some_cstring, "%04x", addr);
+  Serial.println(message);
 }
 
 boolean findUser(char * usern) {
@@ -648,7 +651,7 @@ void printHelpText() {
 void welcomeMessage(void) {
   char hex_addr[10];
   sprintf(hex_addr, "%04x", this_node_address);
-  Serial.print("\r\nWelcome to the BoilerMake Hackathon Badge Network...\r\n\n");
+  Serial.print("\r\nWelcome to the (cracked) BoilerMake Hackathon Badge MESSAGING Network...\r\n\n");
   Serial.print("Your address: ");
   Serial.println(hex_addr);
   Serial.print("\nAll commands must be terminated with a carriage return.\r\n"
