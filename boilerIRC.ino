@@ -52,6 +52,8 @@ const byte LED    = 1; // LED pattern
 const byte MESS   = 2; // Message
 const byte DEMO   = 3; // Demo Pattern
 
+//const byte MESSAGE = 0;
+
 // Global Variables
 int SROEPin = 3; // using digital pin 3 for SR !OE
 int SRLatchPin = 8; // using digital pin 4 for SR latch
@@ -66,11 +68,19 @@ uint8_t ledPatternAA = 0;
 uint8_t ledPatternBB = 0;
 bool flashLEDs = false;
 
-struct 
+struct payload
 { // Payload structure
   byte command;
   byte led_pattern;
   char message[30];
+};
+
+struct irc_payload {
+  byte command;
+  byte sig_one;
+  byte sig_two;
+  char message[30];
+
 };
 
 // This runs once on boot
@@ -113,12 +123,10 @@ void loop() {
   } else if (!Serial && terminalConnect) {
     terminalConnect = false;
   }
-  ledDisplayIndividual(0x01);
-  ledDisplayIndividual(0xca);
   //networkIRCRead();
   //sendLEDPattern()
   //networkIRCRead(); // Read from network
-  serialRead(); // Read from serial  
+  serialRead(); // Read from serial
 }
 
 void ledAttempt() {
@@ -206,6 +214,53 @@ void serialRead() {
 
 }
 
+void handleSerialDataIRC(char inData[], byte index) {
+  //tokenize the input from the terminal by spaces
+  char *words[MAX_TERMINAL_WORDS];
+  byte current_word_index = 0;
+  char *p = strtok(inData, " ");
+  while(p!=NULL) {
+    words[current_word_index++] = p;
+    p = strtok(NULL, " ");
+  }
+  Serial.println(words[0]);
+  
+  if(strcmp(words[0], "help") == 0) {
+    printHelpText();
+  } 
+  //send messages
+  else if(strcmp(words[0], "mess") == 0) {
+    uint16_t TOaddr = strtol(words[1], NULL, 16);
+
+      byte first_addr = (byte)((this_node_address & 0xFF00) >> 8);
+      byte second_addr = (byte)(this_node_address & 0x00FF);
+      char str_msg[MAX_TERMINAL_MESSAGE_LEN];
+
+      char * curr_pos = str_msg;
+      for (int i = 2; i < current_word_index; i++){
+        byte curr_len = strlen(words[i]);
+        strncpy(curr_pos, words[i], curr_len);
+        curr_pos += curr_len;
+
+        // this will add in the space characters that tokenizing removes
+        if (i < current_word_index - 1){
+          strncpy(curr_pos, " ", 1);
+          curr_pos++;
+        }
+      }
+
+      struct irc_payload myPayload = {MESS, first_addr, second_addr, {}};
+
+      // the end of the string minus the start of the string gives the length
+      memcpy(&myPayload.message, str_msg, curr_pos - str_msg);
+      Serial.println(myPayload.message);
+      radio.stopListening();
+      radio.openWritingPipe(TOaddr);
+      radio.write(&myPayload, sizeof(myPayload));
+      radio.startListening();
+
+    }
+  }
 
 // Handle received commands from user obtained via the serial termina
 void handleSerialData(char inData[], byte index) {
@@ -334,6 +389,8 @@ void handleIRCPayload(struct payload * myPayload) {
     case MESS:
       Serial.print("Message:\r\n  ");
       Serial.println(myPayload->message);
+      Serial.println(myPayload->sig_one);
+      Serial.println(myPaload->sig_two);
       handleIRCmessage(myPayload->message);
       printPrompt();
       break;
@@ -349,11 +406,11 @@ void handleIRCPayload(struct payload * myPayload) {
   free(myPayload); // Deallocate payload memory block
 }
 
-void handleIRCmessage(char[30] message) {
+void handleIRCmessage(char message[30]) {
   //copy message for parsing
-  char[30] mess_copy = message;
+  //char mess_copy[30] = message;
   //how to decompile message... pull command out
-  char * user = strtok(message, " ");
+  /*char * user = strtok(message, " ");
   char * command = strtok(mess_copy, NULL);
   //try to find user
   if(!findUser(user)) {
@@ -381,13 +438,14 @@ void handleIRCmessage(char[30] message) {
   }
   else {
     Serial.println("Someone sent a message without a recognizable tag!");
-  }
+  }*/
 }
 
 boolean findUser(char * usern) {
   //iterate through user list
   for(int i = 0; i < 30; i++) {
   }
+  return false;
 }
 
 void printPrompt(void){
