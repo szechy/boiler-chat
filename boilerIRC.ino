@@ -373,7 +373,7 @@ void handleSerialData(char inData[], byte index) {
   }
 }
 
-void handleIRCPayload(struct payload * myPayload) {
+void handleIRCPayload(struct irc_payload * myPayload) {
   switch(myPayload->command) {
 
     case PING:
@@ -382,7 +382,7 @@ void handleIRCPayload(struct payload * myPayload) {
       break;
 
     case LED:
-      ledDisplay(myPayload->led_pattern);
+      //ledDisplay(myPayload->led_pattern);
       //ledDisplayIndividual(myPayload->led_pattern);
       break;
 
@@ -390,7 +390,7 @@ void handleIRCPayload(struct payload * myPayload) {
       Serial.print("Message:\r\n  ");
       Serial.println(myPayload->message);
       Serial.println(myPayload->sig_one);
-      Serial.println(myPaload->sig_two);
+      Serial.println(myPayload->sig_two);
       handleIRCmessage(myPayload->message);
       printPrompt();
       break;
