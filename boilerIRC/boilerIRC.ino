@@ -1,3 +1,6 @@
+#include <nRF24L01.h>
+#include <RF24.h>
+#include <RF24_config.h>
 /* vim: set ts=2 sw=2 sts=2 et! : */
 //
 // BoilerMake Fall 2014 Badge Code
@@ -58,6 +61,7 @@ const byte DEMO   = 3; // Demo Pattern
 int SROEPin = 3; // using digital pin 3 for SR !OE
 int SRLatchPin = 8; // using digital pin 4 for SR latch
 boolean terminalConnect = false; // indicates if the terminal has connected to the board yet
+const uint16_t users[4] = {0x01d2, 0x012e, 0x01cf, 0x01d9}; //riyu, kenny, mayank, and colins ID's used to send messages. temporary solution
 
 // nRF24L01 radio static initializations
 RF24 radio(9,10); // Setup nRF24L01 on SPI bus using pins 9 & 10 as CE & CSN, respectively
@@ -79,7 +83,7 @@ struct irc_payload {
   byte command;
   byte sig_one;
   byte sig_two;
-  char message[140];
+  char message[30];
 
 };
 
@@ -153,6 +157,30 @@ void sendLedPattern() {
 
 }
 
+struct irc_payload send_message(uint16_t TOaddr,char *words[], byte current_word_index) {
+  byte first_addr = (byte)((this_node_address & 0xFF00) >> 8);
+  byte second_addr = (byte)(this_node_address & 0x00FF);
+  char str_msg[MAX_TERMINAL_MESSAGE_LEN];
+  char * curr_pos = str_msg;
+
+  for (int i = 2; i < current_word_index; i++){
+    byte curr_len = strlen(words[i]);
+    strncpy(curr_pos, words[i], curr_len);
+    curr_pos += curr_len;
+
+    // this will add in the space characters that tokenizing removes
+    if (i < current_word_index - 1){
+      strncpy(curr_pos, " ", 1);
+      curr_pos++;
+    }
+  }
+
+  struct irc_payload myPayload = {MESS, first_addr, second_addr, {}};
+  // the end of the string minus the start of the string gives the length
+  memcpy(&myPayload.message, str_msg, curr_pos - str_msg);
+  return myPayload;
+}
+
 void portScan() {
   for(uint16_t i = 0; i < 600; i++) {
     
@@ -182,7 +210,7 @@ void networkIRCRead() {
     struct irc_payload * current_payload = (struct irc_payload *) malloc(sizeof(struct irc_payload));
 
     // Fetch the payload, and see if this was the last one.
-    radio.read( current_payload, sizeof(struct irc_payload) );
+    radio.read( current_payload, sizeof(struct payload) );
     handleIRCPayload(current_payload);
   }
 }
@@ -223,46 +251,36 @@ void handleSerialDataIRC(char inData[], byte index) {
     words[current_word_index++] = p;
     p = strtok(NULL, " ");
   }
-  Serial.println(words[0]);
   
   if(strcmp(words[0], "help") == 0) {
     printHelpText();
   } 
   //send messages
   else if(strcmp(words[0], "mess") == 0) {
-    uint16_t TOaddr = strtol(words[1], NULL, 16);
-    Serial.println(TOaddr);
-
-      byte first_addr = (byte)((this_node_address & 0xFF00) >> 8);
-      byte second_addr = (byte)(this_node_address & 0x00FF);
-      char str_msg[MAX_TERMINAL_MESSAGE_LEN];
-
-      char * curr_pos = str_msg;
-      for (int i = 2; i < current_word_index; i++){
-        byte curr_len = strlen(words[i]);
-        strncpy(curr_pos, words[i], curr_len);
-        curr_pos += curr_len;
-
-        // this will add in the space characters that tokenizing removes
-        if (i < current_word_index - 1){
-          strncpy(curr_pos, " ", 1);
-          curr_pos++;
-        }
+    //sends messages to all users in a list
+    if (strcmp(words[1],"all") == 0) {
+      struct irc_payload myPayload;
+      for(int i = 0;i < 4;i++){
+        myPayload = send_message(users[i], words, current_word_index);
+        radio.stopListening();
+        radio.openWritingPipe(users[i]);
+        radio.write(&myPayload, sizeof(myPayload));
+        radio.startListening();
       }
-
-      struct irc_payload myPayload = {MESS, first_addr, second_addr, {}};
-
-      // the end of the string minus the start of the string gives the length
-      memcpy(&myPayload.message, str_msg, curr_pos - str_msg);
-      Serial.println(myPayload.message);
+      //Serial.println(myPayload.message);
+    }
+    else {
+      uint16_t TOaddr = strtol(words[1], NULL, 16);
+      //Serial.println(TOaddr);
+      struct irc_payload myPayload = send_message(TOaddr, words, current_word_index);
+      //Serial.println(myPayload.message);
       radio.stopListening();
       radio.openWritingPipe(TOaddr);
       radio.write(&myPayload, sizeof(myPayload));
       radio.startListening();
-
     }
   }
-
+}
 // Handle received commands from user obtained via the serial termina
 void handleSerialData(char inData[], byte index) {
   // tokenize the input from the terminal by spaces
@@ -274,12 +292,11 @@ void handleSerialData(char inData[], byte index) {
     p = strtok(NULL, " ");
   }
 
-  Serial.println(words[0]);
-
   if (strcmp(words[0], "help") == 0) {
     printHelpText();
 
-  } else if (strcmp(words[0], "send") == 0) {
+  } 
+  else if (strcmp(words[0], "send") == 0) {
     // checks if address field was given valid characters
     if ((strspn(words[1], "1234567890AaBbCcDdEeFf") <= 4)
         && (strspn(words[1], "1234567890AaBbCcDdEeFf") > 0)) {
@@ -408,7 +425,6 @@ void handleIRCPayload(struct irc_payload * myPayload) {
 }
 
 void handleIRCmessage(char message[30]) {
-  
   //copy message for parsing
   //char mess_copy[30] = message;
   //how to decompile message... pull command out
