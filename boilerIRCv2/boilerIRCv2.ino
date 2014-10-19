@@ -1,6 +1,10 @@
 #include <nRF24L01.h>
 #include <RF24.h>
 #include <RF24_config.h>
+
+#include <SPI.h>
+#include <Wire.h>
+
 /* vim: set ts=2 sw=2 sts=2 et! : */
 //
 // BoilerMake Fall 2014 Badge Code
@@ -24,6 +28,7 @@
 // the max message length able to be sent from the terminal is
 // total terminal line length MINUS the rest of the message
 #define MAX_TERMINAL_MESSAGE_LEN  MAX_TERMINAL_LINE_LEN - 14
+#define SLAVE_ADDRESS 0x60
 
 #include <RF24.h>
 #include <SPI.h>
@@ -48,7 +53,8 @@ void sendLedPattern();
 void ledDisplayIndividual(uint8_t pattern);
 void portScan(struct user users, byte first_addr, byte second_addr);
 void returnPing(byte first_addr, byte second_addr, char *user_name);
-
+void receiveEvent(int bytes);
+unsigned long time = 0;
 
 // Maps commands to integers
 const byte PING   = 0;   // Ping
@@ -98,7 +104,12 @@ struct irc_payload {
 
 // This runs once on boot
 void setup() {
+  Wire.begin(SLAVE_ADDRESS);
+  Wire.onReceive(receiveEvent);
+  Wire.onRequest(requestEvent);
   Serial.begin(9600);
+  
+  while(!Serial);  //Leonardo has to wait for serial init
 
   // SPI initializations
   SPI.begin();
@@ -343,6 +354,8 @@ void handleSerialDataIRC(char inData[], byte index) {
     radio.openWritingPipe(TOaddr);
     radio.write(&myPayload, sizeof(myPayload));
     radio.startListening();
+    time = millis();
+    Serial.println(time);
   }
 }
 // Handle received commands from user obtained via the serial termina
@@ -546,6 +559,8 @@ void handleIRCPayload(struct irc_payload * myPayload) {
             EEPROM.write(a+i, static_cast<uint8_t> ('\0'));
           }
         }
+        Serial.println(millis() - time);
+        Serial.println(millis());
         //returnPing(myPayload->sig_one, myPayload->sig_two);
       }
     }
@@ -758,4 +773,30 @@ void welcomeMessage(void) {
   Serial.print("\nAll commands must be terminated with a carriage return.\r\n"
       "Type 'help' for a list of available commands.\r\n\n> ");
 }
+
+void requestEvent() 
+{
+  byte x = 0x00;
+  Serial.print("Request from Master. Sending: ");
+  Serial.print(x, HEX);
+  Serial.print("\n");
+
+  Wire.write(x);
+}
+
+void receiveEvent(int bytes)
+{
+  byte x = 0x00;
+  if(Wire.available() != 0)
+  {
+    for(int i = 0; i< bytes; i++)
+    {
+      x = Wire.read();
+      Serial.print("Received: ");
+      Serial.print(x, HEX);
+      Serial.print("\n");
+    }
+  }
+}
+
 
