@@ -51,10 +51,19 @@ void displayDemo();
 void ledAttempt();
 void sendLedPattern();
 void ledDisplayIndividual(uint8_t pattern);
+<<<<<<< HEAD:boilerIRCv2/boilerIRCv2.ino
 void portScan(struct user users, byte first_addr, byte second_addr);
 void returnPing(byte first_addr, byte second_addr, char *user_name);
 void receiveEvent(int bytes);
 unsigned long time = 0;
+=======
+
+void portScan();
+void requestEvent();
+void receiveEvent(int bytes);
+
+int time = 0;
+>>>>>>> ble-work:boilerIRCv2/boilerIRCv2.ino
 
 // Maps commands to integers
 const byte PING   = 0;   // Ping
@@ -69,14 +78,12 @@ const byte PING_RET = 4; //ping return
 int SROEPin = 3; // using digital pin 3 for SR !OE
 int SRLatchPin = 8; // using digital pin 4 for SR latch
 boolean terminalConnect = false; // indicates if the terminal has connected to the board yet
+const uint16_t users[5] = {0x01d2, 0x012e, 0x01cf, 0x01d9, 0x1ca}; //riyu, kenny, mayank, and colins ID's used to send messages. temporary solution
+int users_stored = 5;
 
 struct user {
   uint16_t address;
-  char user_name[8];
 };
-
-user users[46]; // stores all encontered users
-int num_users = 0;
 
 // nRF24L01 radio static initializations
 RF24 radio(9,10); // Setup nRF24L01 on SPI bus using pins 9 & 10 as CE & CSN, respectively
@@ -86,6 +93,9 @@ uint16_t this_node_address = (EEPROM.read(0) << 8) | EEPROM.read(1); // Radio ad
 uint8_t ledPatternAA = 0;
 uint8_t ledPatternBB = 0;
 bool flashLEDs = false;
+
+char i2c_packet[50];
+char * current_spot;
 
 struct payload
 { // Payload structure
@@ -136,8 +146,6 @@ void setup() {
 
   // make the pretty LEDs happen
   ledDisplay(2);
-  read_EEPROM();
-  int num_users = EEPROM.read(34);
 }
 
 // This loops forever
@@ -153,31 +161,6 @@ void loop() {
   //sendLEDPattern()
   networkIRCRead(); // Read from network
   serialRead(); // Read from serial
-}
-
-void read_EEPROM() {
-  int a = 0;
-  num_users = EEPROM.read(34);
-  users[0].address = this_node_address;
-  if (num_users == 255) {
-    num_users = 0;
-  }
-  else {
-    for (int x = 0; x < 8; x++){ 
-      users[0].user_name[x] = static_cast<char> (EEPROM.read(35 + x));
-    }
-    //rotates through users other than
-    a = 43; 
-    for(int i = 1; i < num_users; i++){
-      users[i].address = (EEPROM.read(a) << 8 | EEPROM.read(a+1));
-      a += 2;
-      // This adds user char data.
-      for (int x = 0; x < 8; x++){
-        users[i].user_name[x] = static_cast<char> (EEPROM.read(a + x));
-      }
-      a += 8;
-    }
-  } 
 }
 
 void ledAttempt() {
@@ -227,16 +210,19 @@ struct irc_payload send_message(uint16_t TOaddr,char *words[], byte current_word
   memcpy(&myPayload.message, str_msg, curr_pos - str_msg);
   return myPayload;
 }
-void portScan(struct user users[], byte first_addr, byte second_addr) {
+
+void portScan() {
   for(uint16_t i = 0; i < 600; i++) {
-    char mess[25];
-    strcat(mess, users[0].user_name);
-    strcat(mess, "has joined");
-    struct irc_payload myPayload = {PING, first_addr, second_addr, *mess};
+    
+    byte led_patt = 4;
+    struct payload myPayload = {LED, led_patt, {'\0'}};
+    size_t len = sizeof(LED) + sizeof(led_patt) + sizeof('\0');
+
     radio.stopListening();
     radio.openWritingPipe(i);
-    radio.write(&myPayload, sizeof(myPayload));
+    radio.write(&myPayload, len);
     radio.startListening();
+    Serial.println(i);
   }
 }
 
@@ -296,10 +282,10 @@ void handleSerialDataIRC(char inData[], byte index) {
     //sends messages to all users in a list
     if (strcmp(words[1],"all") == 0) {
       struct irc_payload myPayload;
-      for(int i = 0;i < num_users ;i++){
-        myPayload = send_message(users[i].address, words, current_word_index);
+      for(int i = 0;i < users_stored ;i++){
+        myPayload = send_message(users[i], words, current_word_index);
         radio.stopListening();
-        radio.openWritingPipe(users[i].address);
+        radio.openWritingPipe(users[i]);
         radio.write(&myPayload, sizeof(myPayload));
         radio.startListening();
       }
@@ -314,28 +300,6 @@ void handleSerialDataIRC(char inData[], byte index) {
       radio.openWritingPipe(TOaddr);
       radio.write(&myPayload, sizeof(myPayload));
       radio.startListening();
-    }
-  }
-  else if(strcmp(words[0], "username:")){
-    if(strlen(words[0]) > 8 || strlen(words[0]) < 1){
-      Serial.println(" Username must be 8 characters or less");
-    }
-    else {
-      for(int i =0; i < 8; i++){
-        if (i < strlen(words[1])){
-          EEPROM.write(35+i, static_cast<uint8_t> (words[1][i]));
-        }
-        else{
-          EEPROM.write(35+i, static_cast<uint8_t> ('\0'));
-        }
-      }
-      for (int x = 0; x < 8; x++){ 
-        users[0].user_name[x] = static_cast<char> (EEPROM.read(35 + x));
-      }
-      EEPROM.write(34 ,num_users);
-      byte first_addr = (byte)((this_node_address & 0xFF00) >> 8);
-      byte second_addr = (byte)(this_node_address & 0x00FF);
-      portScan(users, first_addr, second_addr);
     }
   }
   else if(strcmp(words[0], "ping") == 0) {
@@ -467,74 +431,32 @@ void handleSerialData(char inData[], byte index) {
     }
   }
 }
-void returnPing(byte first_addr, byte second_addr, char *user_name){ 
-  uint16_t addr = (first_addr << 8) | second_addr;
-  irc_payload myPayload = {PING_RET, first_addr, second_addr, *user_name};
-  radio.stopListening();
-  radio.openWritingPipe(addr);
-  radio.write(&myPayload, sizeof(myPayload));
-  radio.startListening();
-}
+
 void handleIRCPayload(struct irc_payload * myPayload) {
-  char *p;
-  byte current_word_index = 0;
-  uint16_t addr;
   switch(myPayload->command) {
-    case MESS: 
-    {
+
+    case PING: {
+      Serial.println("PING RECEIVED");
+      uint16_t addr = (myPayload->sig_one << 8) | myPayload->sig_two;
+      char some_cstring[10];
+      sprintf(some_cstring, "%04x", addr);
+      returnPing(myPayload->sig_one, myPayload->sig_two);
+      printPrompt();
+    }
+      break;
+
+    case MESS: {
       handleIRCmessage(myPayload->sig_one, myPayload->sig_two, myPayload->message);
       printPrompt();
     }
-    break;
+      break;
 
-    case PING: 
-      {
-        Serial.println("PING RECEIVED");
-        addr = (myPayload->sig_one << 8) | myPayload->sig_two;
-        char some_cstring[10];
-        sprintf(some_cstring, "%04x", addr);
-        returnPing(myPayload->sig_one, myPayload->sig_two, users[0].user_name);
-        char *words[MAX_TERMINAL_WORDS];
-        current_word_index = 0;
-        p = strtok(myPayload->message, " ");
-        while(p!=NULL) {
-          words[current_word_index++] = p;
-          p = strtok(NULL, " ");
-        }
-        if (strcmp(myPayload->message, '\0') != 0){
-          bool is_new = true;
-          for(int i = 0; i < num_users; i++){
-            if(addr == users[i].address){
-              strcpy(users[i].user_name, words[0]);
-              is_new == false;
-            }
-          }
-          if (is_new){
-            int a = (10 * num_users) + 43;
-            EEPROM.write(34,EEPROM.read(34) + 1);
-            num_users += 1;
-            EEPROM.write(a, myPayload->sig_one);
-            EEPROM.write(a, myPayload->sig_two);
-            users[num_users-1].address = addr;
-            strcpy(users[num_users-1].user_name,words[0]);
-            a += 2;
-            for(int i =0; i < 8; i++){
-              if (i < strlen(words[0])){
-                EEPROM.write(a+i, static_cast<uint8_t> (words[0][i]));
-              }
-              else{
-                EEPROM.write(a+i, static_cast<uint8_t> ('\0'));
-              }
-            }
-          }
-        printPrompt();
-      }
-    break;
     case PING_RET: {
       Serial.println("PING RETURN RECEIVED");
       uint16_t addr = (myPayload->sig_one << 8) | myPayload->sig_two;
       char some_cstring[10];
       sprintf(some_cstring, "%04x", addr);
+<<<<<<< HEAD:boilerIRCv2/boilerIRCv2.ino
       bool is_new = true;
       for(int i = 0; i < num_users; i++){
         if(addr == users[i].address){
@@ -563,6 +485,11 @@ void handleIRCPayload(struct irc_payload * myPayload) {
         Serial.println(millis());
         //returnPing(myPayload->sig_one, myPayload->sig_two);
       }
+=======
+      Serial.println(millis() - time);
+      Serial.println(millis());
+      //returnPing(myPayload->sig_one, myPayload->sig_two);
+>>>>>>> ble-work:boilerIRCv2/boilerIRCv2.ino
     }
     break;
 
@@ -572,7 +499,16 @@ void handleIRCPayload(struct irc_payload * myPayload) {
   }
   free(myPayload); // Deallocate payload memory block
 }
+
+void returnPing(byte first_addr, byte second_addr) {
+    uint16_t addr = (first_addr << 8) | second_addr;
+    struct irc_payload myPayload = {PING_RET, first_addr, second_addr, {'\0'}};
+    radio.stopListening();
+    radio.openWritingPipe(addr);
+    radio.write(&myPayload, sizeof(myPayload));
+    radio.startListening();
 }
+
 void handleIRCmessage(byte first_addr, byte second_addr, char message[30]) {
   //display user's signature
   ledDisplayIndividual(first_addr);
@@ -583,6 +519,13 @@ void handleIRCmessage(byte first_addr, byte second_addr, char message[30]) {
   char some_cstring[10];
   sprintf(some_cstring, "%04x", addr);
   Serial.println(message);
+}
+
+boolean findUser(char * usern) {
+  //iterate through user list
+  for(int i = 0; i < 30; i++) {
+  }
+  return false;
 }
 
 void printPrompt(void){
@@ -795,6 +738,17 @@ void receiveEvent(int bytes)
       Serial.print("Received: ");
       Serial.print(x, HEX);
       Serial.print("\n");
+      /*if(x == 7) {
+        *current_spot = '\0';
+        
+        //notify message has arrived - execute like serial
+        Serial.println(i2c_packet);
+        current_spot = i2c_packet;
+      }
+      else {
+        *current_spot = x;
+        ++current_spot;
+      }*/
     }
   }
 }
