@@ -49,6 +49,8 @@ void ledDisplayIndividual(uint8_t pattern);
 
 void portScan();
 
+int time = 0;
+
 // Maps commands to integers
 const byte PING   = 0;   // Ping
 const byte LED    = 1;   // LED pattern
@@ -294,6 +296,8 @@ void handleSerialDataIRC(char inData[], byte index) {
     radio.openWritingPipe(TOaddr);
     radio.write(&myPayload, sizeof(myPayload));
     radio.startListening();
+    time = millis();
+    Serial.println(time);
   }
 }
 // Handle received commands from user obtained via the serial termina
@@ -430,6 +434,8 @@ void handleIRCPayload(struct irc_payload * myPayload) {
       uint16_t addr = (myPayload->sig_one << 8) | myPayload->sig_two;
       char some_cstring[10];
       sprintf(some_cstring, "%04x", addr);
+      Serial.println(millis() - time);
+      Serial.println(millis());
       //returnPing(myPayload->sig_one, myPayload->sig_two);
     }
     break;
