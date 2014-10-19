@@ -56,7 +56,7 @@ void portScan();
 void requestEvent();
 void receiveEvent(int bytes);
 
-int time = 0;
+unsigned long time = 0;
 
 // Maps commands to integers
 const byte PING   = 0;   // Ping
